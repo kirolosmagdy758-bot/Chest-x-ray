@@ -1,0 +1,191 @@
+import numpy as np
+import pandas as pd
+import os
+import cv2
+import seaborn as sns 
+import matplotlib.pyplot as plt
+import pickle
+from tqdm import tqdm
+from keras.models import Sequential,Model,load_model
+from keras.layers import Dense,Dropout,BatchNormalization,Conv2D,MaxPooling2D,Input,Flatten
+from tensorflow.keras.preprocessing.image import ImageDataGenerator,load_img,img_to_array
+from keras.callbacks import ReduceLROnPlateau,EarlyStopping,ModelCheckpoint
+from sklearn.metrics import classification_report,confusion_matrix
+import warnings 
+warnings.filterwarnings('ignore')
+
+img_size=(150,150)
+batch_size=64
+seed=42
+epochs=30
+
+train_dir=r'/kaggle/input/datasets/tr1gg3rtrash/balanced-augmented-covid-cxr-dataset'
+train_generator=ImageDataGenerator(rescale=1./255,validation_split=0.2)
+train_data=train_generator.flow_from_directory(directory=train_dir,
+                                                subset='training',
+                                                target_size=img_size,
+                                                color_mode='grayscale',
+                                                class_mode='categorical',
+                                                shuffle=True,
+                                                seed=seed,
+                                                batch_size=batch_size)
+
+val_data=train_generator.flow_from_directory(directory=train_dir,
+                                            subset='validation',
+                                            color_mode='grayscale',
+                                            class_mode='categorical',
+                                            target_size=img_size,
+                                            batch_size=batch_size,
+                                            shuffle=False)
+
+plt.figure(figsize=(20,25))
+plot_index=1
+for category in train_data.class_indices.keys():
+    path=os.path.join(train_dir,category)
+    img_num=1
+    for img in os.listdir(path):
+        if img_num<=4:
+            img_path=os.path.join(path,img)
+            img=load_img(img_path,target_size=img_size)
+            plt.subplot(6,4,plot_index)
+            plt.title(category.capitalize())
+            plt.axis('off')
+            plt.imshow(img)
+            img_num+=1
+            plot_index+=1
+        else:
+            break  
+plt.show()
+
+model=Sequential()
+model.add(Input(shape=(150,150,1)))
+
+model.add(Conv2D(16,(3,3),activation='relu',padding='same'))
+model.add(MaxPooling2D(pool_size=(2,2)))
+model.add(BatchNormalization())
+
+model.add(Conv2D(32,(3,3),activation='relu',padding='same'))
+model.add(MaxPooling2D(pool_size=(2,2)))
+model.add(BatchNormalization())
+
+model.add(Conv2D(64,(3,3),activation='relu',padding='same'))
+model.add(MaxPooling2D(pool_size=(2,2)))
+model.add(BatchNormalization())
+
+model.add(Conv2D(128,(3,3),activation='relu',padding='same'))
+model.add(MaxPooling2D(pool_size=(2,2)))
+model.add(BatchNormalization())
+
+model.add(Flatten())
+
+model.add(Dropout(0.4))
+model.add(Dense(32,activation='relu'))
+model.add(Dropout(0.4))
+model.add(Dense(16,activation='relu'))
+model.add(Dropout(0.4))
+model.add(Dense(4,activation='softmax'))
+
+model.summary()
+
+cp=ModelCheckpoint( 'Augmented_Covid_CXR_weights.keras',
+                    monitor='val_loss',
+                    save_best_only=True,
+                    verbose=1)
+early_stopping=EarlyStopping( monitor='val_loss',
+                            min_delta=0.001,
+                            patience=5,
+                            restore_best_weights=True,
+                            verbose=1
+                            )
+ReduceLR=ReduceLROnPlateau(monitor='val_loss',
+                            factor=0.5,
+                            patience=5,
+                            min_delta=0.001,
+                            verbose=1)
+callbacks=[cp,early_stopping,ReduceLR]
+
+model.compile(optimizer='adam',loss='categorical_crossentropy',metrics=['accuracy'])
+
+history=model.fit(train_data,validation_data=val_data,steps_per_epoch=train_data.samples//train_data.batch_size,epochs=epochs,callbacks=callbacks)
+
+plt.title("Training Accuracy VS Validation Accuracy")
+plt.plot(history.history['accuracy'],label='Training Accuracy')
+plt.plot(history.history['val_accuracy'],label='Validation Accuracy')
+plt.legend()
+plt.show()
+
+plt.title("Training Loss VS Validation Loss")
+plt.plot(history.history['loss'],label='Training Loss')
+plt.plot(history.history['val_loss'],label='Validation Loss')
+plt.legend()
+plt.show()
+
+model.evaluate(val_data)
+
+y_pred=model.predict(val_data)
+
+y_pred[0]
+
+y_p=np.argmax(y_pred,axis=1)
+
+y_p[0]
+
+report=classification_report(val_data.classes,y_p)
+print("Classification Report : \n"+report)
+
+conf_mat=confusion_matrix(val_data.classes,y_p)
+conf_mat
+
+plt.title("Confusion Matrix")
+sns.heatmap(conf_mat,annot=True,cmap='magma',linecolor='white',linewidths=0.5)
+plt.show()
+
+model.save('Augmented_Covid_CXR_Model.h5')
+
+pred_dir=r'/kaggle/input/datasets/zzinabelsaha/pred-data'
+pred_data=[]
+for img in tqdm(os.listdir(pred_dir)):
+    img_path=os.path.join(pred_dir,img)
+    image=load_img(img_path,target_size=img_size,color_mode='grayscale')
+    image_array=img_to_array(image)
+    image_array/=255
+    pred_data.append(image_array)
+
+pred_data=np.array(pred_data).reshape(-1,img_size[0],img_size[1],1)
+
+plt.figure(figsize=(15,15))
+plot_index=1
+for img in os.listdir(pred_dir):
+    if plot_index<=12:
+        img_path=os.path.join(pred_dir,img)
+        image=load_img(img_path,target_size=img_size)
+        plt.subplot(3,4,plot_index)
+        plt.axis('off')
+        plt.imshow(image)
+        plot_index+=1
+    else:
+        break  
+plt.show()
+
+images_pred=model.predict(pred_data)
+
+images_pred_labels[0]
+
+labels=[i for i in val_data.class_indices.keys()]
+labels
+
+plt.figure(figsize=(15,25))
+plot_index=1
+for img in os.listdir(pred_dir):
+    if plot_index<=20:
+        label=labels[images_pred_labels[plot_index-1]]
+        img_path=os.path.join(pred_dir,img)
+        image=load_img(img_path,target_size=img_size)
+        plt.subplot(5,4,plot_index)
+        plt.title(label.capitalize())
+        plt.axis('off')
+        plt.imshow(image)
+        plot_index+=1
+    else:
+        break  
+plt.show()
